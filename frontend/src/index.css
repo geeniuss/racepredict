@@ -2,14 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom global styles for RacePredict */
+/* Global RacePredict Theme - Dark Blue-Black Night Race Vibes */
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: #000; /* Fallback solid black */
 }
 
+/* Full-screen F1 car background with dark overlay for readability */
+#root {
+  min-height: 100vh;
+  background-image: url('/racepredict-bg.jpg'); /* Change to .png if you uploaded as PNG */
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  position: relative;
+}
+
+/* Dark overlay to make text pop on the image */
+#root::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 20, 0.85); /* Deep navy-black overlay */
+  z-index: 1;
+}
+
+/* Ensure content is above overlay */
+#root > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* Custom scrollbar - navy/orange accent */
 ::-webkit-scrollbar {
   width: 8px;
 }
@@ -19,6 +49,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #FF8C00;
+  background: #1E40AF; /* Deep navy blue */
   border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #1E3A8A;
 }
