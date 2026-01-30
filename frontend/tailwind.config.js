@@ -7,10 +7,11 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: "#FF8C00",   // Orange pill vibe 🍊
-        accent: "#DC2626",    // F1 red
-        background: "#000000",
-        surface: "#1F1F1F",
+        primary: "#1E40AF",    // Deep navy blue (main accent/buttons)
+        accent: "#3B82F6",     // Lighter blue (highlights/hover)
+        background: "#000000", // Pure black base
+        surface: "#0F172A",    // Dark navy-gray surfaces (cards/panels)
+        muted: "#64748B",      // Subtle gray text
       },
     },
   },
