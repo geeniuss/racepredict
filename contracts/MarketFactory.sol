@@ -2,6 +2,7 @@
 pragma solidity ^0.8.21;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "./Market.sol";
 
 contract MarketFactory is Ownable {
     address payable public treasury;
@@ -50,7 +51,7 @@ contract MarketFactory is Ownable {
         require(deadline > block.timestamp, "Invalid deadline");
         require(outcomeNames.length >= 2, "Min 2 outcomes");
 
-        Market newMarket = new Market(this, question, category, outcomeNames, deadline);
+        Market newMarket = new Market(IMarketFactory(address(this)), question, category, outcomeNames, deadline);
         address marketAddr = address(newMarket);
         isValidMarket[marketAddr] = true;
         allMarkets.push(marketAddr);
