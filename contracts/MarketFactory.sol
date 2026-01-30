@@ -1,107 +1,142 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/security/Pausable.sol";
 
-contract MarketFactory is Ownable {
-    address payable public treasury;
-    address payable public protocolReserves;
+interface IMarketFactory {
+    function tradingFeeBPS() external view returns (uint256);
+    function treasuryShareBPS() external view returns (uint256);
+    function withdrawalFeeBPS() external view returns (uint256);
+    function depositTreasuryFees() external payable;
+    function depositProtocolFees() external payable;
+    function addTradeStats(address user, uint256 volume, uint256 points) external;
+    function addWinStats(address user, uint256 bonusPoints) external;
+    function owner() external view returns (address);
+}
 
-    uint256 public constant BASIS_POINTS = 10000;
-    uint256 public tradingFeeBPS = 200; // 2%
-    uint256 public treasuryShareBPS = 7000; // 70% of fee
-    uint256 public withdrawalFeeBPS = 50; // 0.5%
+contract Market is ReentrancyGuard, Pausable {
+    IMarketFactory public immutable factory;
 
-    uint256 public treasuryBalance;
-    uint256 public protocolBalance;
+    string public question;
+    string public category;
+    uint256 public deadline;
+    bool public resolved;
+    uint256 public winningOutcomeId;
 
-    struct UserStats {
-        uint256 totalVolume;
-        uint256 points;
-        uint256 tradesCount;
-        uint256 winsCount;
+    struct Outcome {
+        string name;
+        uint256 totalStaked; // Net after trading fees
     }
 
-    mapping(address => UserStats) public userStats;
-    mapping(address => bool) public isValidMarket;
+    Outcome[] public outcomes;
 
-    address[] public allMarkets;
-
-    event MarketCreated(address indexed marketAddr, string question, uint256 deadline);
-    event FeesDeposited(uint256 treasuryAmount, uint256 protocolAmount);
-
-    constructor(address payable _treasury, address payable _protocolReserves) Ownable(msg.sender) {
-        treasury = _treasury;
-        protocolReserves = _protocolReserves;
+    struct Position {
+        uint256 outcomeId;
+        uint256 shares;
+        bool claimed;
     }
 
-    function updateFees(uint256 _tradingFeeBPS, uint256 _treasuryShareBPS, uint256 _withdrawalFeeBPS) external onlyOwner {
-        tradingFeeBPS = _tradingFeeBPS;
-        treasuryShareBPS = _treasuryShareBPS;
-        withdrawalFeeBPS = _withdrawalFeeBPS;
+    mapping(address => Position) public positions;
+
+    uint256 public totalGrossVolume;
+    uint256 public constant POINTS_PER_ETH = 100;
+    uint256 public constant WINNER_MULTIPLIER_BPS = 15000; // 1.5x (150%)
+
+    event BetPlaced(address indexed user, uint256 outcomeId, uint256 grossAmount, uint256 shares);
+    event MarketResolved(uint256 winningOutcomeId);
+    event WinningsClaimed(address indexed user, uint256 amount);
+
+    constructor(
+        IMarketFactory _factory,
+        string memory _question,
+        string memory _category,
+        string[] memory _outcomeNames,
+        uint256 _deadline
+    ) {
+        factory = _factory;
+        question = _question;
+        category = _category;
+        deadline = _deadline;
+        for (uint256 i = 0; i < _outcomeNames.length; i++) {
+            outcomes.push(Outcome({name: _outcomeNames[i], totalStaked: 0}));
+        }
     }
 
-    function createMarket(
-        string calldata question,
-        string calldata category,
-        string[] calldata outcomeNames,
-        uint256 deadline
-    ) external onlyOwner returns (address market) {
-        require(deadline > block.timestamp, "Invalid deadline");
-        require(outcomeNames.length >= 2, "Min 2 outcomes");
+    function placeBet(uint256 outcomeId) external payable nonReentrant whenNotPaused {
+        require(block.timestamp < deadline, "Closed");
+        require(!resolved, "Resolved");
+        require(outcomeId < outcomes.length, "Invalid outcome");
+        require(msg.value > 0, "No ETH");
 
-        Market newMarket = new Market(this, question, category, outcomeNames, deadline);
-        address marketAddr = address(newMarket);
-        isValidMarket[marketAddr] = true;
-        allMarkets.push(marketAddr);
+        uint256 feeBPS = factory.tradingFeeBPS();
+        uint256 treasuryShare = factory.treasuryShareBPS();
 
-        emit MarketCreated(marketAddr, question, deadline);
-        return marketAddr;
+        uint256 fee = (msg.value * feeBPS) / 10000;
+        uint256 treasuryFee = (fee * treasuryShare) / 10000;
+        uint256 protocolFee = fee - treasuryFee;
+        uint256 shares = msg.value - fee;
+
+        outcomes[outcomeId].totalStaked += shares;
+        totalGrossVolume += msg.value;
+
+        Position storage pos = positions[msg.sender];
+        if (pos.shares > 0) require(pos.outcomeId == outcomeId, "Can't switch");
+        else pos.outcomeId = outcomeId;
+        pos.shares += shares;
+
+        uint256 points = (msg.value * POINTS_PER_ETH) / 1e18;
+        factory.addTradeStats(msg.sender, msg.value, points);
+
+        if (treasuryFee > 0) factory.depositTreasuryFees{value: treasuryFee}();
+        if (protocolFee > 0) factory.depositProtocolFees{value: protocolFee}();
+
+        emit BetPlaced(msg.sender, outcomeId, msg.value, shares);
     }
 
-    function depositTreasuryFees() external payable {
-        require(isValidMarket[msg.sender], "Invalid market");
-        uint256 amount = msg.value;
-        treasuryBalance += amount;
-        emit FeesDeposited(amount, 0);
+    function resolveMarket(uint256 _winningOutcomeId) external {
+        require(msg.sender == factory.owner(), "Not owner");
+        require(block.timestamp >= deadline, "Not ended");
+        require(!resolved, "Resolved");
+        require(_winningOutcomeId < outcomes.length, "Invalid");
+
+        resolved = true;
+        winningOutcomeId = _winningOutcomeId;
+        emit MarketResolved(_winningOutcomeId);
     }
 
-    function depositProtocolFees() external payable {
-        require(isValidMarket[msg.sender], "Invalid market");
-        uint256 amount = msg.value;
-        protocolBalance += amount;
-        emit FeesDeposited(0, amount);
+    function claimWinnings() external nonReentrant {
+        require(resolved, "Not resolved");
+        Position storage pos = positions[msg.sender];
+        require(pos.shares > 0 && !pos.claimed && pos.outcomeId == winningOutcomeId, "No win");
+
+        pos.claimed = true;
+
+        uint256 totalNetPool = 0;
+        for (uint256 i = 0; i < outcomes.length; i++) {
+            totalNetPool += outcomes[i].totalStaked;
+        }
+
+        uint256 payout = (pos.shares * totalNetPool) / outcomes[winningOutcomeId].totalStaked;
+        uint256 withdrawFee = (payout * factory.withdrawalFeeBPS()) / 10000;
+        uint256 netPayout = payout - withdrawFee;
+
+        if (withdrawFee > 0) factory.depositTreasuryFees{value: withdrawFee}();
+
+        uint256 bonusPoints = (pos.shares * POINTS_PER_ETH * (WINNER_MULTIPLIER_BPS - 10000)) / (1e18 * 10000);
+        factory.addWinStats(msg.sender, bonusPoints);
+
+        payable(msg.sender).transfer(netPayout);
+
+        emit WinningsClaimed(msg.sender, netPayout);
     }
 
-    function withdrawTreasury() external onlyOwner {
-        uint256 amount = treasuryBalance;
-        treasuryBalance = 0;
-        treasury.transfer(amount);
-    }
-
-    function withdrawProtocol() external onlyOwner {
-        uint256 amount = protocolBalance;
-        protocolBalance = 0;
-        protocolReserves.transfer(amount);
-    }
-
-    function addTradeStats(address user, uint256 volume, uint256 points) external {
-        require(isValidMarket[msg.sender], "Invalid market");
-        UserStats storage stats = userStats[user];
-        stats.totalVolume += volume;
-        stats.points += points;
-        stats.tradesCount++;
-    }
-
-    function addWinStats(address user, uint256 bonusPoints) external {
-        require(isValidMarket[msg.sender], "Invalid market");
-        UserStats storage stats = userStats[user];
-        stats.winsCount++;
-        stats.points += bonusPoints;
-    }
-
-    function getAllMarkets() external view returns (address[] memory) {
-        return allMarkets;
+    function getProbabilities() external view returns (uint256[] memory probs) {
+        uint256 totalNet = 0;
+        probs = new uint256[](outcomes.length);
+        for (uint256 i = 0; i < outcomes.length; i++) totalNet += outcomes[i].totalStaked;
+        if (totalNet == 0) return probs;
+        for (uint256 i = 0; i < outcomes.length; i++) probs[i] = (outcomes[i].totalStaked * 10000) / totalNet;
     }
 
     receive() external payable {}
