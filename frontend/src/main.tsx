@@ -14,7 +14,7 @@ const queryClient = new QueryClient()
 
 const config = getDefaultConfig({
   appName: 'RacePredict',
-  projectId: 'YOUR_WALLET_CONNECT_PROJECT_ID', // Get free at https://cloud.walletconnect.com (1 min signup)
+  projectId: '972d1a69bdd22c820bae2c7169d4244d', // Get free at https://cloud.walletconnect.com (1 min signup)
   chains: [baseSepolia],
 })
 
