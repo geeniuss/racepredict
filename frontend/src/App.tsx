@@ -1,5 +1,6 @@
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount } from 'wagmi'
+import UserStats from './components/UserStats'
 
 export default function App() {
   const { isConnected } = useAccount()
@@ -14,21 +15,24 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main Content Placeholder */}
+      {/* Main Content */}
       <main className="flex-1 max-w-6xl mx-auto p-6 w-full">
         {isConnected ? (
-          <div className="text-center py-20">
-            <p className="text-2xl text-muted">Wallet connected — markets loading soon 🔥</p>
+          <div>
+            <UserStats />
+            <div className="text-center py-12">
+              <p className="text-2xl text-accent">Markets loading soon — place bets on F1 races 🏎️🔥</p>
+            </div>
           </div>
         ) : (
           <div className="text-center py-20">
-            <h2 className="text-3xl mb-8 text-primary">Connect to predict F1 races</h2>
+            <h2 className="text-4xl font-bold mb-8 text-primary">Connect Wallet to Predict F1 Races</h2>
             <ConnectButton />
           </div>
         )}
       </main>
 
-      {/* Footer - Your Credit */}
+      {/* Footer */}
       <footer className="py-8 border-t border-surface mt-auto">
         <div className="text-center text-muted">
           Built by{' '}
@@ -38,7 +42,7 @@ export default function App() {
             rel="noopener noreferrer"
             className="text-primary hover:text-accent underline"
           >
-            @Genius_devv
+            @Genius_devv 
           </a>
         </div>
       </footer>
